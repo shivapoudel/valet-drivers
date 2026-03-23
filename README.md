@@ -30,6 +30,33 @@ Run the script to set up local proxy rules:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/shivapoudel/valet-drivers/main/Proxy/eachperson-proxy.sh)"
 ```
 
+## Postman SSL Certificate Setup
+
+After setting up the local proxy, configure Postman to handle self-signed SSL certificates.
+
+### Add CA Certificate
+
+1. **Locate your Valet CA certificate:**
+
+   **MacOS:**
+	```bash
+	~/Library/Application\ Support/Herd/config/valet/CA/LaravelValetCASelfSigned.pem
+	```
+
+   **Windows:**
+	```bash
+	~/.config/herd/config/valet/CA/LaravelValetCASelfSigned.pem
+	```
+
+2. **Add to Postman:**
+   - Settings → Certificates → CA Certificates (toggle ON)
+   - Select the `LaravelValetCASelfSigned.pem` file
+   - General → SSL certificate verification (toggle ON)
+
+### Or Disable SSL Verification (Local Development Only)
+
+- Settings → General → SSL certificate verification (toggle OFF)
+
 ## Documentation
 
 - [Custom Drivers for MacOS](https://herd.laravel.com/docs/macos/extending-herd/custom-drivers)
