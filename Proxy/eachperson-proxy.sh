@@ -1,64 +1,93 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Check if Herd command exists ─────────────────────────────
-if ! command -v herd >/dev/null 2>&1; then
-    echo "✖ Herd command not found. Please install Laravel Herd before running this script." >&2
-    exit 1
-fi
-
-NGINX_CONF="/Users/shivapoudel/Library/Application Support/Herd/config/valet/Nginx/eachperson.test"
-BACKUP_CONF="${NGINX_CONF}.bak"
-
-# ── Colors ───────────────────────────────────────────────
+# ── Colors ─────────────────────────────────────────────────────
+CYAN='\033[0;36m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-CYAN='\033[0;36m'
 RESET='\033[0m'
 
-info()    { echo -e "${CYAN}→${RESET} $*"; }
-success() { echo -e "${GREEN}✔${RESET} $*"; }
-warn()    { echo -e "${YELLOW}⚠${RESET} $*"; }
-error()   { echo -e "${RED}✖${RESET} $*" >&2; exit 1; }
+info()    { printf "${CYAN}→${RESET} %s\n" "$*"; }
+success() { printf "${GREEN}✔${RESET} %s\n" "$*"; }
+warn()    { printf "${YELLOW}⚠${RESET} %s\n" "$*"; }
+error()   { printf "${RED}✖${RESET} %s\n" "$*" >&2; exit 1; }
 
-# ── Proxy block to inject ─────────────────────────────────────────────
+# ── Configuration ──────────────────────────────────────────────
+PROXY_HOST="qa.eachperson.com"
+SITE_DOMAIN="eachperson.test"
+API_URL="https://$SITE_DOMAIN/dashboard/api/user-authentication/login"
+EMAIL="s.poudel@eachperson.com"
+PASSWORD="Password@123"
+
+# ── Check Herd installation ────────────────────────────────────
+if ! command -v herd >/dev/null 2>&1; then
+    error "Herd command not found. Install Laravel Herd first."
+fi
+
+# ── Detect platform and set Herd base path ────────────────────
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    HERD_BASE="$HOME/Library/Application Support/Herd"
+elif [[ "$OSTYPE" == "msys"* || "$OSTYPE" == "cygwin"* || "$OSTYPE" == "win32"* ]]; then
+    HERD_BASE="$HOME/.config/herd"
+elif [[ "$OSTYPE" == "linux-gnu"* ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+    HERD_BASE="$HOME/.config/herd"
+else
+    error "Unsupported platform: $OSTYPE"
+fi
+
+info "Platform: $OSTYPE"
+info "Herd base: $HERD_BASE"
+
+# ── Nginx config paths ────────────────────────────────────────
+NGINX_CONF="$HERD_BASE/config/valet/Nginx/$SITE_DOMAIN"
+BACKUP_CONF="${NGINX_CONF}.bak"
+PROXY_COMMON="$HERD_BASE/config/valet/Drivers/Nginx/proxy-common.conf"
+
+# ── Ensure site Nginx config exists ───────────────────────────
+if [[ ! -f "$NGINX_CONF" ]]; then
+    info "Nginx config missing: $NGINX_CONF"
+    info "Securing site using Herd..."
+    herd secure "$SITE_DOMAIN" >/dev/null 2>&1 || error "Failed to secure site via Herd."
+    [[ -f "$NGINX_CONF" ]] || error "Nginx config was not created by Herd"
+    info "Site secured. Nginx config should now exist."
+fi
+
+# ── Exit early if proxy block already exists ──────────────────
+if grep -q "set \$proxy_host \$host;" "$NGINX_CONF"; then
+    warn "Proxy block already exists — skipping injection."
+    exit 0
+fi
+
+# ── Backup Nginx config ───────────────────────────────────────
+if [[ ! -f "$BACKUP_CONF" ]]; then
+    info "Backing up config to: $BACKUP_CONF"
+    cp "$NGINX_CONF" "$BACKUP_CONF"
+fi
+
+# ── Inject proxy block into Nginx config ──────────────────────
+info "Injecting proxy block..."
+
 PROXY_BLOCK='
     set $proxy_host $host;
 
+    # Runtime DNS resolution
+    resolver 8.8.8.8 8.8.4.4 valid=3600s;
+    resolver_timeout 5s;
+
     location ^~ /dashboard/api/ {
-        set $proxy_host qa.eachperson.com;
-        proxy_pass https://qa.eachperson.com;
-        include "/Users/shivapoudel/Library/Application Support/Herd/config/valet/Drivers/Nginx/proxy-common.conf";
+        set $proxy_host '"$PROXY_HOST"';
+        proxy_pass https://$proxy_host;
+        include "'"$PROXY_COMMON"'";
     }
 
     location ^~ /dashboard/ {
         proxy_pass http://localhost:4200;
         proxy_intercept_errors on;
         error_page 502 503 504 = /;
-        include "/Users/shivapoudel/Library/Application Support/Herd/config/valet/Drivers/Nginx/proxy-common.conf";
+        include "'"$PROXY_COMMON"'";
     }'
 
-# ── Ensure config exists or secure site ─────────────────────────────
-if [[ ! -f "$NGINX_CONF" ]]; then
-    info "Nginx config not found: $NGINX_CONF"
-    info "Securing site using Herd..."
-    herd secure eachperson.test >/dev/null 2>&1 || error "Failed to secure site via Herd."
-    info "Site secured. Nginx config should now exist."
-fi
-
-# ── Skip injection if proxy block already exists ───────────────
-if grep -q "set \$proxy_host" "$NGINX_CONF"; then
-    warn "Proxy block already exists — skipping injection."
-    exit 0
-fi
-
-# ── Backup ─────────────────────────────────────────────────────
-info "Backing up config to: $BACKUP_CONF"
-cp "$NGINX_CONF" "$BACKUP_CONF"
-
-# ── Inject proxy block after `ssl_certificate_key` ─────────────
-info "Injecting proxy block after 'ssl_certificate_key'..."
 BLOCK_FILE=$(mktemp)
 echo "$PROXY_BLOCK" > "$BLOCK_FILE"
 TMP_FILE=$(mktemp)
@@ -76,46 +105,60 @@ awk -v blockfile="$BLOCK_FILE" '
 
 rm -f "$BLOCK_FILE"
 mv "$TMP_FILE" "$NGINX_CONF"
+
 success "Proxy block injected."
 
-# ── Restart Herd ─────────────────────────────────────────────
-info "Restarting Herd nginx..."
-herd restart nginx >/dev/null 2>&1
+# ── Restart Herd services ─────────────────────────────────
+info "Restarting Herd services..."
+herd restart >/dev/null 2>&1
 sleep 2
 
-# ── Validate API via curl ─────────────────────────────────────
-API_URL="https://eachperson.test/dashboard/api/user-authentication/login"
-EMAIL="s.poudel@eachperson.com"
-PASSWORD="Password@123"
-
+# ── Validate API via curl ─────────────────────────────────
 info "Testing API proxy via curl..."
-RESPONSE=$(curl -s -X POST "$API_URL" \
+TMP_RESPONSE=$(mktemp)
+trap 'rm -f "$TMP_RESPONSE"' EXIT
+
+set +e
+HTTP_CODE=$(curl -sS -o "$TMP_RESPONSE" \
+  -w "%{http_code}" \
+  -X POST "$API_URL" \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
-  --max-time 5 --location --write-out "HTTPSTATUS:%{http_code}")
+  --max-time 10 \
+  --connect-timeout 5 \
+  --location)
+CURL_EXIT=$?
+set -e
 
-HTTP_BODY=$(echo "$RESPONSE" | sed -e 's/HTTPSTATUS\:.*//g')
-HTTP_CODE=$(echo "$RESPONSE" | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+HTTP_CODE=${HTTP_CODE:-000}
 
-if [[ "$HTTP_CODE" == "000" ]]; then
-    warn "Could not reach $API_URL — check if Herd is running."
+if [[ "$HTTP_CODE" == "000" || $CURL_EXIT -ne 0 ]]; then
+    warn "Could not reach $API_URL (curl exit: $CURL_EXIT)"
     warn "Restoring backup..."
-    cp "$BACKUP_CONF" "$NGINX_CONF"
-    info "Restarting Herd nginx..."
-    herd restart nginx >/dev/null 2>&1
-    error "Restored original config."
+
+    if [[ -f "$BACKUP_CONF" ]]; then
+        cp "$BACKUP_CONF" "$NGINX_CONF"
+        info "Restarting Herd services..."
+        herd restart >/dev/null 2>&1
+        error "Restored original config."
+    else
+        error "Backup not found — cannot restore original config."
+    fi
 elif [[ "$HTTP_CODE" == "502" || "$HTTP_CODE" == "503" ]]; then
     warn "Got $HTTP_CODE — nginx routing ok, upstream may be down."
+    success "Proxy configuration applied successfully."
 elif [[ "$HTTP_CODE" == "200" ]]; then
-    if echo "$HTTP_BODY" | grep -q '"token"'; then
-        success "API login succeeded (token found in response)"
+    if grep -q '"token"' "$TMP_RESPONSE"; then
+        success "API login succeeded (token found)"
         rm -f "$BACKUP_CONF"
-        success "Backup removed as test succeeded."
+        success "Backup removed as login succeeded."
     else
-        warn "HTTP 200 but token not found — probably redirected to frontend"
+        warn "HTTP 200 but token not found — possible frontend fallback/redirect"
+        success "Proxy configuration applied successfully."
     fi
 else
     warn "Got HTTP $HTTP_CODE — proxy may be working but response may not be OK."
+    success "Proxy configuration applied successfully."
 fi
 
 success "Done!"
