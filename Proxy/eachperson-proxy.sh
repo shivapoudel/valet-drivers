@@ -77,6 +77,8 @@ PROXY_BLOCK='
 
     location ^~ /dashboard/api/ {
         set $proxy_host '"$PROXY_HOST"';
+        proxy_ssl_server_name on;
+        proxy_ssl_name $proxy_host;
         proxy_pass https://$proxy_host;
         include "'"$PROXY_COMMON"'";
     }
