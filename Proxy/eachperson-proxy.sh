@@ -14,7 +14,7 @@ warn()    { printf "${YELLOW}⚠${RESET} %s\n" "$*"; }
 error()   { printf "${RED}✖${RESET} %s\n" "$*" >&2; exit 1; }
 
 # ── Configuration ──────────────────────────────────────────────
-PROXY_HOST="qa.eachperson.com"
+PROXY_HOST="stag.eachperson.com"
 SITE_DOMAIN="eachperson.test"
 API_URL="https://$SITE_DOMAIN/dashboard/api/user-authentication/login"
 EMAIL="s.poudel@eachperson.com"
