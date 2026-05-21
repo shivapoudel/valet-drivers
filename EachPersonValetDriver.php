@@ -17,6 +17,11 @@ class EachPersonValetDriver extends BasicValetDriver
     private const WORDPRESS_DIRECTORY = '/rewards';
 
     /**
+     * Pulse Connect application directory.
+     */
+    private const PULSE_CONNECT_DIRECTORY = '/survey';
+
+    /**
      * Cached Angular build path.
      */
     private ?string $angularBuildPath = null;
@@ -26,7 +31,7 @@ class EachPersonValetDriver extends BasicValetDriver
      */
     public function serves(string $sitePath, string $siteName, string $uri): bool
     {
-        return file_exists($sitePath . self::ANGULAR_DIRECTORY . '/angular.json') && file_exists($sitePath . self::WORDPRESS_DIRECTORY . '/wp-config.php');
+        return file_exists($sitePath . self::ANGULAR_DIRECTORY . '/angular.json') && ( file_exists($sitePath . self::WORDPRESS_DIRECTORY . '/wp-config.php') || file_exists($sitePath . self::PULSE_CONNECT_DIRECTORY . '/apps/web/dist/index.html') );
     }
 
     /**
@@ -37,6 +42,9 @@ class EachPersonValetDriver extends BasicValetDriver
         if (str_starts_with($uri, self::ANGULAR_DIRECTORY)) {
             $sitePath = $this->getAngularBuildPath($sitePath, $siteName);
             $uri = substr($uri, strlen(self::ANGULAR_DIRECTORY));
+        } elseif (str_starts_with($uri, self::PULSE_CONNECT_DIRECTORY)) {
+            $sitePath .= self::PULSE_CONNECT_DIRECTORY . '/apps/web/dist';
+            $uri = substr($uri, strlen(self::PULSE_CONNECT_DIRECTORY));
         }
 
         return parent::isStaticFile($sitePath, $siteName, $uri);
@@ -49,6 +57,9 @@ class EachPersonValetDriver extends BasicValetDriver
     {
         if ('/' === $uri || str_starts_with($uri, self::ANGULAR_DIRECTORY)) {
             $sitePath = $this->getAngularBuildPath($sitePath, $siteName);
+        } elseif (str_starts_with($uri, self::PULSE_CONNECT_DIRECTORY)) {
+            $sitePath .= self::PULSE_CONNECT_DIRECTORY . '/apps/web/dist';
+            $uri = substr($uri, strlen(self::PULSE_CONNECT_DIRECTORY));
         } elseif (str_starts_with($uri, self::WORDPRESS_DIRECTORY)) {
             $sitePath .= self::WORDPRESS_DIRECTORY;
             $uri = substr($uri, strlen(self::WORDPRESS_DIRECTORY));

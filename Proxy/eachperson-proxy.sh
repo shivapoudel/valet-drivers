@@ -88,6 +88,13 @@ PROXY_BLOCK='
         proxy_intercept_errors on;
         error_page 502 503 504 = /;
         include "'"$PROXY_COMMON"'";
+    }
+
+    location ^~ /survey/ {
+        proxy_pass http://localhost:5173;
+        proxy_intercept_errors on;
+        error_page 502 503 504 = /;
+        include "'"$PROXY_COMMON"'";
     }'
 
 BLOCK_FILE=$(mktemp)
